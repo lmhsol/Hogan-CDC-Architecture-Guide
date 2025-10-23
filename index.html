@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hogan Mainframe Change Data Capture Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chosen Palette: Corporate Calm -->
+    <!-- Application Structure Plan: A single-page application using a top navigation bar to switch between three main content sections: 'Overview', 'Implementation Guide', and 'Analysis'. This structure is chosen to provide a clear, logical user flow. The user starts with a high-level visual summary (the diagram in Overview), can drill down into the technical details (Implementation), and finally evaluate the architecture's trade-offs (Analysis). This non-linear but guided approach is more user-friendly for understanding a complex technical process than a simple linear document. The implementation section is further broken down into clickable, detailed views for each step, allowing users to progressively disclose information without being overwhelmed. -->
+    <!-- Visualization & Content Choices: Report Info: Mainframe process flow -> Goal: Organize/Inform -> Viz/Presentation Method: HTML/CSS diagram built with Tailwind flexbox/grid for the main flow. Card-based layout for step-by-step instructions. Three-column layout for pros/cons. -> Interaction: Simple tab-like navigation to switch between views, with clickable cards in the 'Implementation' section to reveal detailed sub-pages. -> Justification: The HTML diagram is a lightweight and effective way to visualize the component relationships without external libraries. Cards break down complex steps into digestible chunks, and the progressive disclosure of details prevents information overload. The column layout allows for direct comparison of the analysis points. -> Library/Method: Vanilla JS for navigation, HTML/Tailwind for all visuals. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    
+    <!-- Fonts from both files (Inter + Fira Code) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .nav-link {
+            transition: all 0.3s ease;
+        }
+        .nav-link.active {
+            color: #10B981;
+            border-bottom-color: #10B981;
+        }
+        .content-section {
+            display: none;
+        }
+        .content-section.active {
+            display: block;
+        }
+        .arrow {
+            position: relative;
+            flex-grow: 1;
+            height: 2px;
+            background-color: #6B7280;
+        }
+        .arrow::after {
+            content: '';
+            position: absolute;
+            right: -1px;
+            top: -4px;
+            width: 0;
+            height: 0;
+            border-top: 5px solid transparent;
+            border-bottom: 5px solid transparent;
+            border-left: 8px solid #6B7280;
+        }
+        .code-comment {
+            color: #9ca3af; /* gray-400 */
+        }
+
+        /* Styles merged from second file */
+        pre, code {
+            font-family: 'Fira Code', monospace;
+        }
+        .prose h2 {
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 0.5rem;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+        .prose h3 {
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        /* Sidebar styles (not used, but harmless to keep) */
+        .sidebar-link {
+            transition: all 0.2s ease-in-out;
+        }
+        .sidebar-link.active {
+            color: #3b82f6;
+            border-left-color: #3b82f6;
+            font-weight: 600;
+        }
+        .sidebar-link:not(.active) {
+            border-left-color: transparent;
+        }
+        /* Scrollbar styles */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+    <!-- Removed rsms.me link as Google Fonts link above includes Inter -->
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+
+        <header class="bg-white rounded-xl shadow-sm p-4 mb-8 sticky top-4 z-10">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <h1 class="text-2xl md:text-3xl font-bold text-slate-700">Hogan CDC Architecture Guide</h1>
+                <nav class="mt-4 md:mt-0">
+                    <ul class="flex space-x-4 md:space-x-6 text-sm md:text-base">
+                        <li><a href="#overview" class="nav-link font-medium pb-1 border-b-2 border-transparent hover:text-emerald-500 hover:border-emerald-500">Overview</a></li>
+                        <li><a href="#implementation" class="nav-link font-medium pb-1 border-b-2 border-transparent hover:text-emerald-500 hover:border-emerald-500">Implementation</a></li>
+                        <li><a href="#analysis" class="nav-link font-medium pb-1 border-b-2 border-transparent hover:text-emerald-500 hover:border-emerald-500">Analysis</a></li>
+                        <!-- NEW NAVIGATION LINK ADDED HERE -->
+                        <li><a href="#detailed-guide" class="nav-link font-medium pb-1 border-b-2 border-transparent hover:text-emerald-500 hover:border-emerald-500">Detailed Guide</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </header>
+
+        <main id="main-content">
+
+            <section id="overview" class="content-section space-y-8">
+                <div class="bg-white p-6 md:p-8 rounded-xl shadow-sm">
+                    <h2 class="text-2xl font-bold mb-4 text-emerald-600">Architectural Overview</h2>
+                    <p class="text-slate-600 leading-relaxed">
+                        This guide outlines a robust, decoupled architecture for capturing data changes from Hogan mainframe batch processes and publishing them to an MVS Log Stream. The design leverages an Entry-Sequenced Data Set (ESDS) as a temporary queue to store the keys of changed records. A separate, near real-time CICS transaction then reads these keys, retrieves the full data records, and forwards them to downstream systems via the log stream. This separation ensures that the performance of critical batch processing is not impacted by the overhead of real-time data publishing.
+                    </p>
+                </div>
+                
+                <div class="bg-white p-6 md:p-8 rounded-xl shadow-sm">
+                    <h3 class="text-xl font-bold mb-6 text-center text-slate-700">Process Flow Diagram</h3>
+                    <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-4 w-full text-center">
+                        <div class="flex flex-col items-center p-3 bg-slate-100 rounded-lg w-48 h-24 justify-center shadow">
+                            <span class="font-bold text-slate-700">Hogan Batch</span>
+                            <span class="text-xs text-slate-500">Modifies Data Groups</span>
+                        </div>
+                        
+                        <div class="flex items-center w-full md:w-auto">
+                            <div class="arrow w-full md:w-24"></div>
+                        </div>
+
+                        <div class="flex flex-col items-center p-3 bg-amber-100 rounded-lg w-48 h-24 justify-center shadow">
+                            <span class="font-bold text-amber-800">Change Keys ESDS</span>
+                            <span class="text-xs text-amber-600">Temporary Key Store</span>
+                        </div>
+                        
+                        <div class="flex items-center w-full md:w-auto">
+                            <div class="arrow w-full md:w-24"></div>
+                        </div>
+                        
+                        <div class="flex flex-col items-center p-3 bg-sky-100 rounded-lg w-48 h-24 justify-center shadow">
+                            <span class="font-bold text-sky-800">CICS Publisher</span>
+                            <span class="text-xs text-sky-600">Reads Keys & Data</span>
+                        </div>
+
+                        <div class="flex items-center w-full md:w-auto">
+                            <div class="arrow w-full md:w-24"></div>
+                        </div>
+
+                        <div class="flex flex-col items-center p-3 bg-emerald-100 rounded-lg w-48 h-24 justify-center shadow">
+                            <span class="font-bold text-emerald-800">MVS Log Stream</span>
+                            <span class="text-xs text-emerald-600">Publishes Change Data</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="implementation" class="content-section space-y-8">
+                <div id="implementation-main" class="bg-white p-6 md:p-8 rounded-xl shadow-sm">
+                    <h2 class="text-2xl font-bold mb-4 text-emerald-600">Implementation Guide</h2>
+                    <p class="text-slate-600 leading-relaxed mb-8">
+                        This section provides a step-by-step guide for setting up both the batch process modifications and the CICS publishing transaction. Click on any step for detailed instructions and code examples.
+                    </p>
+                    
+                    <div class="space-y-6">
+                        <h3 class="text-xl font-semibold border-l-4 border-amber-400 pl-4 text-slate-700">Part 1: Batch Process Modification</h3>
+                        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <a href="#implementation-step1" data-step="1" class="step-card bg-slate-50 p-5 rounded-lg border border-slate-200 hover:shadow-md hover:border-amber-400 transition-all cursor-pointer block">
+                                <span class="text-2xl font-bold text-amber-500">01</span>
+                                <h4 class="font-bold text-lg mt-2 mb-1">Define ESDS Cluster</h4>
+                                <p class="text-sm text-slate-600">Use IDCAMS utility to define a VSAM ESDS cluster. This file will store the change keys.</p>
+                            </a>
+                            <a href="#implementation-step2" data-step="2" class="step-card bg-slate-50 p-5 rounded-lg border border-slate-200 hover:shadow-md hover:border-amber-400 transition-all cursor-pointer block">
+                                <span class="text-2xl font-bold text-amber-500">02</span>
+                                <h4 class="font-bold text-lg mt-2 mb-1">Update Batch COBOL</h4>
+                                <p class="text-sm text-slate-600">Modify the Hogan batch application program to write the key of each changed record to the ESDS file.</p>
+                            </a>
+                            <a href="#implementation-step3" data-step="3" class="step-card bg-slate-50 p-5 rounded-lg border border-slate-200 hover:shadow-md hover:border-amber-400 transition-all cursor-pointer block">
+                                <span class="text-2xl font-bold text-amber-500">03</span>
+                                <h4 class="font-bold text-lg mt-2 mb-1">Update Batch JCL</h4>
+                                <p class="text-sm text-slate-600">Add a DD statement to the batch job's JCL to point to the ESDS dataset for appending records.</p>
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="mt-10 space-y-6">
+                        <h3 class="text-xl font-semibold border-l-4 border-sky-400 pl-4 text-slate-700">Part 2: CICS Publisher Process</h3>
+                        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <a href="#implementation-step4" data-step="4" class="step-card bg-slate-50 p-5 rounded-lg border border-slate-200 hover:shadow-md hover:border-sky-400 transition-all cursor-pointer block">
+                                <span class="text-2xl font-bold text-sky-500">04</span>
+                                <h4 class="font-bold text-lg mt-2 mb-1">Define CICS Resources</h4>
+                                <p class="text-sm text-slate-600">Use `CEDA` to define the ESDS file, the new publisher program, and a transaction ID to CICS.</p>
+                            </a>
+                            <a href="#implementation-step5" data-step="5" class="step-card bg-slate-50 p-5 rounded-lg border border-slate-200 hover:shadow-md hover:border-sky-400 transition-all cursor-pointer block">
+                                <span class="text-2xl font-bold text-sky-500">05</span>
+                                <h4 class="font-bold text-lg mt-2 mb-1">Write CICS Program</h4>
+                                <p class="text-sm text-slate-600">Develop a COBOL/CICS program that sequentially reads the ESDS and publishes the data.</p>
+                            </a>
+                            <a href="#implementation-step6" data-step="6" class="step-card bg-slate-50 p-5 rounded-lg border border-slate-200 hover:shadow-md hover:border-sky-400 transition-all cursor-pointer block">
+                                <span class="text-2xl font-bold text-sky-500">06</span>
+                                <h4 class="font-bold text-lg mt-2 mb-1">Implement ESDS Cleanup</h4>
+                                <p class="text-sm text-slate-600">Design a reliable strategy to manage and clear the ESDS file after successful processing.</p>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="implementation-details" class="hidden">
+                    <button class="back-to-guide mb-6 inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50">
+                        &larr; Back to Implementation Guide
+                    </button>
+                    <div class="bg-white p-6 md:p-8 rounded-xl shadow-sm space-y-4">
+                        <div id="step-content-1" class="implementation-step hidden">
+                            <h3 class="text-xl font-bold text-amber-600 mb-4">Step 1: Define ESDS Cluster (Detailed)</h3>
+                            <p class="text-slate-600 mb-4">The first step is to create the physical dataset that will serve as our queue. We use the Access Method Services (`IDCAMS`) utility, a standard mainframe tool for managing datasets, particularly VSAM files. An ESDS (Entry-Sequenced Data Set) is chosen because it's a simple, append-only file structure, making it perfect for a temporary queue where the order of entry is preserved.</p>
+                            <h4 class="font-semibold text-slate-800">Sample JCL (IDCAMS)</h4>
+                            <pre class="bg-slate-800 text-white text-sm rounded-lg p-4 mt-2 overflow-x-auto"><code>//DEFESDS  JOB  CLASS=A,MSGCLASS=X,NOTIFY=&amp;SYSUID
+//********************************************************************
+//* DEFINE THE VSAM ESDS CLUSTER FOR HOGAN CHANGE KEYS
+//********************************************************************
+//STEP1    EXEC PGM=IDCAMS
+//SYSPRINT DD    SYSOUT=*
+//SYSIN    DD    *
+  DEFINE CLUSTER -
+    (NAME(YOUR.HOGAN.CHANGE.KEYS.ESDS) - <span class="code-comment">/* Dataset Name */</span>
+     VOLUMES(VOLSER) -              <span class="code-comment">/* DASD Volume Serial */</span>
+     CYLINDERS(10 5) -              <span class="code-comment">/* Primary/Secondary Space */</span>
+     RECORDSIZE(80 80) -            <span class="code-comment">/* Avg and Max Record Size */</span>
+     NONINDEXED -                   <span class="code-comment">/* Specifies ESDS type */</span>
+     SHAREOPTIONS(2 3) -            <span class="code-comment">/* Cross-region sharing */</span>
+     REUSE) -                       <span class="code-comment">/* Allows re-initialization */</span>
+    DATA -
+     (NAME(YOUR.HOGAN.CHANGE.KEYS.ESDS.DATA))
+/*</code></pre>
+                            <h4 class="font-semibold text-slate-800 mt-4">Key Parameters Explained:</h4>
+                            <ul class="list-disc list-inside text-slate-600 mt-2 space-y-2 text-sm">
+                                <li><code class="bg-slate-200 rounded px-1 text-xs">CYLINDERS(10 5)</code>: Allocate an initial 10 cylinders and allow it to grow by 5 cylinders at a time. This should be sized based on the maximum expected number of changes in a single batch run.</li>
+                                <li><code class="bg-slate-200 rounded px-1 text-xs">RECORDSIZE(80 80)</code>: Defines a fixed-length 80-byte record. This must be large enough to accommodate the full concatenated key of the Hogan record plus any control information you might want to add (e.g., timestamp, change type).</li>
+                                <li><code class="bg-slate-200 rounded px-1 text-xs">SHAREOPTIONS(2 3)</code>: This is critical for concurrent access. `(2)` allows multiple regions to read the file while one region is writing. `(3)` ensures full sharing, allowing reads and writes to proceed without integrity exposure. This lets the batch job write keys while the CICS region might be reading them.</li>
+                                <li><code class="bg-slate-200 rounded px-1 text-xs">REUSE</code>: This parameter allows the file to be opened for output and written to from the beginning as if it were empty, without needing to run a `DELETE` and `DEFINE` cycle. This is invaluable for the cleanup process.</li>
+                            </ul>
+                        </div>
+                        <div id="step-content-2" class="implementation-step hidden">
+                            <h3 class="text-xl font-bold text-amber-600 mb-4">Step 2: Update Batch COBOL (Detailed)</h3>
+                            <p class="text-slate-600 mb-4">The core logic change involves modifying the existing Hogan batch program. The program must be enhanced to identify when a record has been successfully added, updated, or deleted, and then write that record's unique key to our new ESDS file.</p>
+                            <h4 class="font-semibold text-slate-800">ENVIRONMENT DIVISION</h4>
+                            <p class="text-sm text-slate-500 mb-1">Link the logical file name in your program to a JCL DDNAME.</p>
+                            <pre class="bg-slate-800 text-white text-sm rounded-lg p-4 mt-2 overflow-x-auto"><code>FILE-CONTROL.
+    SELECT CHANGE-KEY-FILE ASSIGN TO CHGKEYS
+        ORGANIZATION IS SEQUENTIAL
+        ACCESS MODE IS SEQUENTIAL
+        FILE STATUS IS WS-CHGKEYS-STATUS.</code></pre>
+                            <h4 class="font-semibold text-slate-800 mt-4">DATA DIVISION - FILE SECTION</h4>
+                            <p class="text-sm text-slate-500 mb-1">Define the record layout for the ESDS file.</p>
+                            <pre class="bg-slate-800 text-white text-sm rounded-lg p-4 mt-2 overflow-x-auto"><code>FD  CHANGE-KEY-FILE
+    RECORD CONTAINS 80 CHARACTERS
+    BLOCK CONTAINS 0 RECORDS.
+01  CHANGE-KEY-RECORD.
+    05  CKR-PRIMARY-KEY         PIC X(50).
+    05  CKR-CHANGE-TYPE         PIC X(1). <span class="code-comment">* 'A'dd, 'U'pdate, 'D'elete</span>
+    05  FILLER                  PIC X(29).</code></pre>
+                             <h4 class="font-semibold text-slate-800 mt-4">PROCEDURE DIVISION</h4>
+                             <p class="text-sm text-slate-500 mb-1">Isolate the ESDS write logic in its own paragraph. Call this paragraph immediately after your program confirms a successful database I/O operation (e.g., after a successful `WRITE`, `REWRITE`, or `DELETE` to the main Hogan VSAM file).</p>
+                            <pre class="bg-slate-800 text-white text-sm rounded-lg p-4 mt-2 overflow-x-auto"><code><span class="code-comment">* This is the main processing logic of your existing program.</span>
+PERFORM PROCESS-INPUT-RECORD.
+IF DATABASE-UPDATE-SUCCESSFUL
+    <span class="code-comment">* This is where you call the new logic.</span>
+    PERFORM WRITE-CHANGE-KEY
+END-IF.
+...
+
+<span class="code-comment">******************************************************************
+* NEW PARAGRAPH TO WRITE THE CHANGE KEY TO THE ESDS FILE.
+******************************************************************</span>
+WRITE-CHANGE-KEY.
+    <span class="code-comment">* Open in EXTEND mode to append to the end of the file.</span>
+    OPEN EXTEND CHANGE-KEY-FILE
+    
+    IF WS-CHGKEYS-STATUS = '00'
+        INITIALIZE CHANGE-KEY-RECORD
+        MOVE HOGAN-RECORD-PRIMARY-KEY TO CKR-PRIMARY-KEY
+        MOVE 'U'                      TO CKR-CHANGE-TYPE <span class="code-comment">* Or 'A', 'D'</span>
+        
+        <span class="code-comment">* Write the formatted key record.</span>
+        WRITE CHANGE-KEY-RECORD
+        
+        IF WS-CHGKEYS-STATUS NOT = '00'
+            DISPLAY 'ERROR WRITING TO CHGKEYS FILE: ' WS-CHGKEYS-STATUS
+            <span class="code-comment">* Critical error handling, may need to ABEND the job.</span>
+        END-IF
+        
+        CLOSE CHANGE-KEY-FILE
+    ELSE
+        DISPLAY 'ERROR OPENING CHGKEYS FILE: ' WS-CHGKEYS-STATUS
+        <span class="code-comment">* Critical error handling.</span>
+    END-IF.</code></pre>
+                        </div>
+                        <div id="step-content-3" class="implementation-step hidden">
+                            <h3 class="text-xl font-bold text-amber-600 mb-4">Step 3: Update Batch JCL (Detailed)</h3>
+                            <p class="text-slate-600 mb-4">The Job Control Language (JCL) tells the operating system how to run the batch job, including which files it needs. We must add a `DD` (Data Definition) statement to connect the logical file (`CHGKEYS`) defined in our COBOL program to the physical dataset we created in Step 1.</p>
+                            <h4 class="font-semibold text-slate-800">Sample JCL DD Statement</h4>
+                            <pre class="bg-slate-800 text-white text-sm rounded-lg p-4 mt-2 overflow-x-auto"><code>//HOGANBAT JOB ...
+//STEP010  EXEC PGM=YOURPROG
+//... other DD statements for input/output files ...
+//********************************************************************
+//* DD FOR THE CHANGE KEY ESDS FILE. MUST MATCH 'ASSIGN TO' IN COBOL
+//********************************************************************
+//CHGKEYS  DD DSN=YOUR.HOGAN.CHANGE.KEYS.ESDS,
+//            DISP=(MOD,CATLG,CATLG)</code></pre>
+                            <h4 class="font-semibold text-slate-800 mt-4">Disposition `DISP=(MOD,CATLG,CATLG)` Explained:</h4>
+                            <p class="text-slate-600 mb-2 text-sm">This parameter is the most critical part of the JCL change. It controls how the dataset is handled before, during, and after the job step.</p>
+                            <ul class="list-disc list-inside text-slate-600 mt-2 space-y-2 text-sm">
+                                <li><strong>First Parameter: `MOD` (Modify)</strong>: This tells the system how to handle the dataset at the start of the job step. `MOD` is uniquely powerful: if the dataset exists, it positions the write pointer *after* the last record. If the dataset does not exist, it treats it like `NEW` and creates it. For our purpose, it ensures that each run of the batch job appends keys to the end of the file, rather than overwriting it.</li>
+                                <li><strong>Second Parameter: `CATLG` (Catalog - Normal)</strong>: If the job step completes successfully (return code 0), this tells the system to catalog the file, meaning its location is recorded in the system catalog for easy reference.</li>
+                                <li><strong>Third Parameter: `CATLG` (Catalog - Abnormal)</strong>: If the job step fails (abends), this also catalogs the file. This is useful for retaining the file for debugging purposes even if the job fails mid-process.</li>
+                            </ul>
+                        </div>
+                        <div id="step-content-4" class="implementation-step hidden">
+                            <h3 class="text-xl font-bold text-sky-600 mb-4">Step 4: Define CICS Resources (Detailed)</h3>
+                            <p class="text-slate-600 mb-4">Before CICS can use the ESDS file or run our publisher program, we must formally define them to the CICS region. This is typically done online using the `CEDA` transaction, which is CICS's resource definition tool.</p>
+                            <h4 class="font-semibold text-slate-800">CEDA Commands Walkthrough</h4>
+                            <p class="text-slate-600 mb-2 text-sm">You will issue these commands within the CEDA transaction screen. Replace `YOURGRP` with the name of an appropriate CICS resource group.</p>
+                            <pre class="bg-slate-800 text-white text-sm rounded-lg p-4 mt-2 overflow-x-auto"><code><span class="code-comment">* 1. Define the ESDS file to CICS</span>
+CEDA DEFINE FILE(CHGKEYS) GROUP(YOURGRP)
+    DSNAME(YOUR.HOGAN.CHANGE.KEYS.ESDS)
+    LSRPOOLID(NONE) <span class="code-comment">* VSAM Local Shared Resources - NONE is fine for sequential browse</span>
+    ADD(YES)        <span class="code-comment">* Allow records to be added (not used here, but good practice)</span>
+    READ(YES)       <span class="code-comment">* Allow records to be read</span>
+    BROWSE(YES)     <span class="code-comment">* CRITICAL: Allows sequential reading (STARTBR/READNEXT)</span>
+
+<span class="code-comment">* 2. Define the publisher program to CICS</span>
+CEDA DEFINE PROGRAM(PUBPROG) GROUP(YOURGRP)
+    LANGUAGE(COBOL) <span class="code-comment">* Specifies the program's language</span>
+    DATALOCATION(ANY)
+
+<span class="code-comment">* 3. Define the transaction to run the program</span>
+CEDA DEFINE TRANSACTION(PUBL) GROUP(YOURGRP)
+    PROGRAM(PUBPROG) <span class="code-comment">* Links this transaction ID to the program defined above</span>
+    TASKDATALOC(ANY)</code></pre>
+                             <h4 class="font-semibold text-slate-800 mt-4">Post-Definition Steps:</h4>
+                            <ul class="list-disc list-inside text-slate-600 mt-2 space-y-1 text-sm">
+                                <li>After defining these resources, you must `INSTALL` the group (`CEDA INSTALL GROUP(YOURGRP)`) to make them active in the CICS region.</li>
+                                <li>The file `CHGKEYS` must also be opened. You can do this manually with `CEMT SET FILE(CHGKEYS) OPEN` or configure it to open automatically at CICS startup.</li>
+                            </ul>
+                        </div>
+                        <div id="step-content-5" class="implementation-step hidden">
+                            <h3 class="text-xl font-bold text-sky-600 mb-4">Step 5: Write CICS Program (Detailed)</h3>
+                            <p class="text-slate-600 mb-4">This program is the heart of the publishing mechanism. It runs independently of the batch job. Its sole purpose is to read the keys queued in the ESDS, use those keys to fetch the full data records from the primary Hogan database, format a message, and publish it to an external system via the MVS Log Stream.</p>
+                            <h4 class="font-semibold text-slate-800">Program Logic (Pseudo-code with Annotations)</h4>
+                            <pre class="bg-slate-800 text-white text-sm rounded-lg p-4 mt-2 overflow-x-auto"><code><span class="code-comment">* Standard CICS program setup.</span>
+IDENTIFICATION DIVISION.
+PROGRAM-ID. PUBPROG.
+...
+DATA DIVISION.
+...
+01 WS-FLAGS.
+    05 WS-ENDFILE-SW         PIC X VALUE 'N'.
+       88 END-OF-FILE              VALUE 'Y'.
+...
+PROCEDURE DIVISION.
+<span class="code-comment">* Set up exception handling first. This tells CICS where to go if
+* certain conditions occur, preventing a transaction abend.</span>
+EXEC CICS HANDLE CONDITION
+    ENDFILE(100-PROCESS-ENDFILE)
+    NOTFND(200-PROCESS-NOTFND)
+    ERROR(900-GENERAL-ERROR)
+END-EXEC.
+
+<span class="code-comment">* Begin a "browse" operation on the ESDS file from the start.</span>
+EXEC CICS STARTBR
+    FILE('CHGKEYS')
+    RIDFLD(WS-KEY-RBA) <span class="code-comment">* RBA is Relative Byte Address, used to track position</span>
+END-EXEC.
+
+<span class="code-comment">* Loop through the file, reading one record at a time.</span>
+PERFORM UNTIL END-OF-FILE
+    EXEC CICS READNEXT
+        FILE('CHGKEYS')
+        INTO(WS-CHANGE-KEY-RECORD)
+        RIDFLD(WS-KEY-RBA)
+    END-EXEC
+
+    <span class="code-comment">* Now use the key from the ESDS to do a direct read of the main
+    * Hogan database file to get the full, current record.</span>
+    EXEC CICS READ
+        FILE('HOGANDB')
+        INTO(WS-HOGAN-RECORD)
+        RIDFLD(CKR-PRIMARY-KEY) <span class="code-comment">* Field from WS-CHANGE-KEY-RECORD</span>
+    END-EXEC
+
+    <span class="code-comment">* At this point, WS-HOGAN-RECORD contains the full data.
+    * Format this data into your required message layout.</span>
+    PERFORM 300-FORMAT-LOGSTREAM-MESSAGE
+
+    <span class="code-comment">* Call the MVS Log Stream write service (IXGWRITE macro).
+    * This is typically done via an assembler helper program.</span>
+    CALL 'LOGWRITE' USING WS-LOGSTREAM-MESSAGE
+END-PERFORM.
+
+<span class="code-comment">* Cleanly terminate the browse operation.</span>
+EXEC CICS ENDBR
+    FILE('CHGKEYS')
+END-EXEC.
+
+EXEC CICS RETURN END-EXEC.
+
+<span class="code-comment">**************************************************
+* Exception Handling Paragraphs
+**************************************************</span>
+100-PROCESS-ENDFILE.
+    SET END-OF-FILE TO TRUE.
+200-PROCESS-NOTFND.
+    <span class="code-comment">* Log an error: key from ESDS not found in Hogan DB. Skip it.</span>
+900-GENERAL-ERROR.
+    <span class="code-comment">* Handle unexpected CICS errors.</span>
+...</code></pre>
+                        </div>
+                        <div id="step-content-6" class="implementation-step hidden">
+                            <h3 class="text-xl font-bold text-sky-600 mb-4">Step 6: Implement ESDS Cleanup (Detailed)</h3>
+                            <p class="text-slate-600 mb-4">The ESDS file acts as a queue. Once the messages (keys) in the queue have been processed, they must be removed to prevent reprocessing and to manage disk space. A robust and automated cleanup strategy is essential for production stability.</p>
+                            <h4 class="font-semibold text-slate-800">Strategy 1: Batch File Re-initialization (Simple & Safe)</h4>
+                            <p class="text-slate-600 mb-2 text-sm">This is the most common and straightforward approach. After the CICS publisher transaction has successfully run to completion, a separate, scheduled batch job runs to effectively wipe the file. This ensures a clean slate before the next batch run begins appending new keys.</p>
+                            <pre class="bg-slate-800 text-white text-sm rounded-lg p-4 mt-2 overflow-x-auto"><code>//CLRKEYS  JOB  ...
+//********************************************************************
+//* THIS JOB CLEARS THE HOGAN CHANGE KEY ESDS FILE BY REPRO'ING
+//* ZERO RECORDS INTO IT. THE 'REUSE' PARAMETER IS REQUIRED.
+//********************************************************************
+//STEP1    EXEC PGM=IDCAMS
+//SYSPRINT DD SYSOUT=*
+//DUMMYIN  DD DUMMY <span class="code-comment">* An empty input file</span>
+//KEYFILE  DD DSN=YOUR.HOGAN.CHANGE.KEYS.ESDS,DISP=OLD
+//SYSIN    DD *
+  REPRO INFILE(DUMMYIN) OUTFILE(KEYFILE) COUNT(0)
+/*</code></pre>
+                             <p class="font-semibold text-slate-700 mt-2 text-sm">Pros: Simple to implement, very low risk. Cons: Introduces a batch dependency; the file is unavailable for writing during the cleanup job's execution.</p>
+                             <h4 class="font-semibold text-slate-800 mt-4">Strategy 2: Pointer-Based Processing (Advanced & Continuous)</h4>
+                            <p class="text-slate-600 mb-2 text-sm">This online approach avoids a separate batch job. The CICS publisher program is enhanced to remember where it left off. It's suitable for scenarios where the publisher needs to run frequently throughout the day.</p>
+                            <p class="text-slate-600 mt-2 text-sm"><strong>Methodology:</strong></p>
+                            <ol class="list-decimal list-inside text-slate-600 mt-2 space-y-2 text-sm">
+                                <li>Create a second, small VSAM KSDS control file with a single record. This record will store the Relative Byte Address (RBA) of the last key successfully processed from the ESDS.</li>
+                                <li><strong>At program start:</strong> The CICS program reads the control file to get the starting RBA. If the file is empty, it starts from the beginning.</li>
+                                <li>The `EXEC CICS STARTBR` command is modified to use this RBA, beginning the browse from the last known position.</li>
+                                <li><strong>At program end:</strong> After the `ENDBR`, the program updates the control file with the RBA of the final record it processed.</li>
+                            </ol>
+                            <p class="font-semibold text-slate-700 mt-2 text-sm">Pros: Allows for near-continuous processing without batch cleanup jobs. Cons: Significantly more complex program logic, requires management of a second control file, and you still need a long-term archival/purge strategy for the ESDS itself as it will grow continuously.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="analysis" class="content-section">
+                 <div class="bg-white p-6 md:p-8 rounded-xl shadow-sm">
+                    <h2 class="text-2xl font-bold mb-4 text-emerald-600">Architecture Analysis</h2>
+                    <p class="text-slate-600 leading-relaxed mb-8">
+                        While this architecture offers significant benefits in decoupling and performance, it's important to understand its trade-offs and consider potential alternatives based on your specific requirements for latency, complexity, and operational overhead.
+                    </p>
+                    <div class="grid md:grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div class="bg-slate-50 p-6 rounded-lg border-t-4 border-green-400">
+                            <h3 class="text-xl font-bold mb-4 text-green-700 flex items-center">
+                                <span class="text-2xl mr-3">✔️</span> Pros
+                            </h3>
+                            <ul class="space-y-3 text-slate-600 text-sm">
+                                <li class="flex items-start"><span class="font-bold text-green-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Decoupling:</strong> Batch processing is isolated from publishing logic. Failures in the publisher or log stream do not halt critical batch jobs.</div></li>
+                                <li class="flex items-start"><span class="font-bold text-green-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Performance:</strong> Batch jobs complete faster as they only perform a simple, fast I/O operation (writing a key) instead of complex message formatting and API calls.</div></li>
+                                <li class="flex items-start"><span class="font-bold text-green-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Resilience:</strong> The ESDS acts as a durable queue. If the CICS publisher is down, change keys accumulate and can be processed once it's available again.</div></li>
+                                <li class="flex items-start"><span class="font-bold text-green-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Flexibility:</strong> The CICS publisher can be triggered on a schedule or on-demand, providing control over when data is published to the log stream.</div></li>
+                            </ul>
+                        </div>
+                        
+                        <div class="bg-slate-50 p-6 rounded-lg border-t-4 border-red-400">
+                            <h3 class="text-xl font-bold mb-4 text-red-700 flex items-center">
+                                <span class="text-2xl mr-3">❌</span> Cons
+                            </h3>
+                            <ul class="space-y-3 text-slate-600 text-sm">
+                                <li class="flex items-start"><span class="font-bold text-red-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Latency:</strong> Data is not published in true real-time. There is an inherent delay between the batch update and the CICS publishing event.</div></li>
+                                <li class="flex items-start"><span class="font-bold text-red-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Complexity:</strong> Introduces more components (ESDS, CICS program, JCL for cleanup) that must be developed, managed, and monitored.</div></li>
+                                <li class="flex items-start"><span class="font-bold text-red-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Data Staleness:</strong> The publisher reads data from Hogan *after* the batch job completes. If another process changes the data in the interim, the publisher might send a stale version of the record.</div></li>
+                                <li class="flex items-start"><span class="font-bold text-red-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Operational Overhead:</strong> The ESDS file needs careful capacity management and a reliable cleanup process to prevent it from filling up and causing failures.</div></li>
+                            </ul>
+                        </div>
+
+                        <div class="bg-slate-50 p-6 rounded-lg border-t-4 border-blue-400">
+                            <h3 class="text-xl font-bold mb-4 text-blue-700 flex items-center">
+                                <span class="text-2xl mr-3">🤔</span> Alternatives
+                            </h3>
+                            <ul class="space-y-3 text-slate-600 text-sm">
+                                <li class="flex items-start"><span class="font-bold text-blue-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Message Queue (MQ):</strong> The batch job could write the full change record directly to an IBM MQ queue. This provides better transactional integrity but can impact batch performance.</div></li>
+                                <li class="flex items-start"><span class="font-bold text-blue-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Database Table:</strong> Use a DB2 table as the intermediary queue instead of an ESDS. This offers easier querying and management but adds database overhead.</div></li>
+                                <li class="flex items-start"><span class="font-bold text-blue-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">Direct Log Stream Write:</strong> If performance impact is acceptable, the batch program could be modified to write directly to the MVS Log Stream, simplifying the architecture significantly.</div></li>
+                                <li class="flex items-start"><span class="font-bold text-blue-600 mr-2 mt-1">▸</span><div><strong class="text-slate-700">CDC Software:</strong> Utilize a commercial Change Data Capture (CDC) product that reads the database logs directly, eliminating the need for any application code changes.</div></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- NEW CONTENT SECTION ADDED HERE -->
+            <section id="detailed-guide" class="content-section">
+                <!-- Content from file 2's <main> is pasted inside a 'prose' wrapper -->
+                <div class="max-w-4xl mx-auto prose prose-slate">
+                    <header class="mb-12">
+                        <h1 class="text-4xl font-extrabold text-slate-900 tracking-tight">Implementation Guide for a Hogan-Based Change Data Capture Architecture</h1>
+                        <p class="text-lg text-slate-600 mt-2">An expert-level technical guide for capturing data modifications within a Hogan Systems mainframe environment.</p>
+                    </header>
+
+                    <section id="blueprint">
+                        <h2>Architectural Blueprint and Process Flow</h2>
+                        <p>This document provides a comprehensive, expert-level technical guide for implementing a custom Change Data Capture (CDC) architecture within a Hogan Systems mainframe environment. The solution is designed to capture data modifications occurring within a core batch processing cycle and publish them to a z/OS log stream for consumption by downstream applications. This architecture is predicated on a decoupled, asynchronous model that prioritizes the integrity and performance of the primary batch application while ensuring eventual consistency of data in subscribing systems.</p>
+                        <p>The end-to-end process flow is initiated when a Hogan batch application modifies a record within one of its managed data groups. The architecture then proceeds through three distinct stages: capture, staging, and publishing.</p>
+                        <ol>
+                            <li><strong>Capture Stage (Hogan Batch):</strong> Immediately following a successful data modification (e.g., creating a new customer or updating an account), the Hogan COBOL batch program is responsible for identifying the unique primary key of the altered record. This key is then written as a new, distinct entry to a dedicated staging file. This stage is designed to be lightweight, imposing minimal overhead on the critical batch processing window. The batch program's sole responsibility in the CDC context is to record <em>that</em> a change occurred, not the change itself.</li>
+                            <li><strong>Staging Stage (VSAM ESDS):</strong> The change keys captured by the batch process are stored in a VSAM Entry-Sequenced Data Set (ESDS). This ESDS file functions as a durable, persistent, first-in-first-out (FIFO) queue. Its append-only nature is perfectly suited for this use case, where batch processes sequentially add new keys to the end of the file throughout the job's execution. The ESDS serves as the critical decoupling point, insulating the batch capture process from the CICS publishing process.</li>
+                            <li><strong>Publishing Stage (CICS Transaction):</strong> Upon the successful completion of the entire Hogan batch job, a separate CICS publisher transaction is initiated. This transaction performs a sequential browse of the ESDS, reading one change key at a time from the start of the file to the end. For each key retrieved, the CICS program accesses the corresponding Hogan data groups to fetch the full, current data record. This complete record is then formatted and written to a z/OS log stream. Once the entire ESDS has been processed, it can be cleared for the next batch cycle.</li>
+                        </ol>
+                        <p>This architectural pattern offers significant resilience. A failure in the CICS publishing component will not impact the batch processing, as the change keys are safely persisted in the VSAM ESDS. The publishing process can be restarted once the CICS environment is restored, ensuring no data changes are lost. Conversely, the batch process is not dependent on the availability of the CICS region or the z/OS Logger, enhancing the reliability of core business processing. However, this design introduces a deliberate latency; data changes are only made available to downstream systems after the batch job has fully completed and the CICS publisher transaction has finished its run. This makes the solution suitable for near-real-time or end-of-day data synchronization requirements, but not for use cases demanding sub-second data propagation.</p>
+                        <p>The following diagram illustrates the flow of data and control between the primary components of this architecture.</p>
+                        <pre class="bg-slate-900 text-white rounded-lg p-4 overflow-x-auto text-sm"><code>
++--------------------------+     1. Write Change Key     +------------------------+
+| Hogan COBOL Batch        | ----------------------------> | VSAM ESDS              |
+| (Data Group Update)      |                             | (Change Key Store)     |
++--------------------------+     4. Read Full Record     +-----------+------------+
+            |                  (via PEM Access)                 | 2. Read Change Key
+            | 5. Batch Job                                      |
+            |    Completion                                     v
+            v                                           +------------------------+
++--------------------------+     3. Retrieve Full Record   | CICS Publisher         |
+| Trigger Mechanism        | <------------------------------ | (Reads ESDS,           |
+| (e.g., EXCI)             |                               | Publishes to Logger)   |
++--------------------------+     6. Publish Change Data    +------------------------+
+                                                                  |
+                                                                  v
+                                                          +--------------------------+
+                                                          | z/OS Log Stream        |
+                                                          | (Consumed by downstream|
+                                                          | applications)          |
+                                                          +--------------------------+
+                        </code></pre>
+                    </section>
+
+                    <section id="stage1">
+                        <h2>Stage 1 - Modifying the Hogan Batch Process</h2>
+                        <p>The first stage of implementation involves modifying the existing Hogan batch application to capture and record the keys of modified data. This requires defining the persistent key store and instrumenting the COBOL program using Hogan-specific interfaces.</p>
+                        
+                        <h3>Defining the ESDS Change Key Store</h3>
+                        <p>The staging file is a standard VSAM Entry-Sequenced Data Set (ESDS), which is ideal for this purpose due to its append-only nature and simple sequential access model. It is defined using the IDCAMS utility, typically in a preliminary step of the batch Job Control Language (JCL).</p>
+                        <p>The following JCL example demonstrates the <code>DEFINE CLUSTER</code> command for creating the ESDS.</p>
+                        <pre class="bg-slate-900 text-white rounded-lg p-4 overflow-x-auto"><code>//DEFINE EXEC PGM=IDCAMS
+//SYSPRINT DD SYSOUT=*
+//SYSIN    DD *
+  DEFINE CLUSTER -
+    (NAME(PROD.HOGAN.CHANGE.KEYS.ESDS) -
+    VOLUMES(PRODVL) -
+    TRACKS(10 5) -
+    NONINDEXED -
+    RECORDSIZE(48 48) -
+    CONTROLINTERVALSIZE(4096) -
+    REUSE) -
+    DATA -
+    (NAME(PROD.HOGAN.CHANGE.KEYS.ESDS.DATA))
+/*</code></pre>
+                        <h4>Annotation of Key DEFINE CLUSTER Parameters:</h4>
+                        <ul>
+                            <li><strong>NAME:</strong> Specifies the unique name for the VSAM cluster.</li>
+                            <li><strong>NONINDEXED:</strong> This is the essential parameter that designates the dataset as an ESDS.</li>
+                            <li><strong>RECORDSIZE(48 48):</strong> Defines a fixed-length record to store the primary key and potentially a timestamp or other metadata.</li>
+                            <li><strong>CONTROLINTERVALSIZE (CISZ):</strong> Defines the unit of data transfer for VSAM. A size of 4096 bytes (4K) is a common and efficient starting point.</li>
+                            <li><strong>REUSE:</strong> This parameter allows the cluster to be opened for OUTPUT mode even when it contains data, effectively clearing the file logically without a DELETE/DEFINE sequence.</li>
+                        </ul>
+
+                        <h3>Instrumenting the Hogan COBOL Program</h3>
+                        <p>A critical aspect of modifying a Hogan application is understanding that standard COBOL I/O statements are generally not used. All significant program operations are managed through a standardized call to the Process Environment Manager (PEM) module. To write a record to the new ESDS file, a new PEM "write activity" must be defined and then invoked from the program.</p>
+                        <p>The following conceptual COBOL code illustrates how to instrument the batch program.</p>
+                        <pre class="bg-slate-900 text-white rounded-lg p-4 overflow-x-auto"><code>******************************************************************
+* WORKING-STORAGE SECTION.
+******************************************************************
+* The Transaction Control Block (TCB) is the standard interface
+* to the Process Environment Manager (PEM).
+COPY TCBCOPY.
+
+* Define the record layout for the ESDS change key file.
+01 WS-CHANGE-KEY-RECORD.
+   05 WCK-ACCOUNT-NUMBER      PIC X(12).
+   05 WCK-CUSTOMER-ID         PIC X(10).
+   05 WCK-CHANGE-TIMESTAMP    PIC X(26).
+
+******************************************************************
+* PROCEDURE DIVISION.
+******************************************************************
+*... existing Hogan batch processing logic...
+    PERFORM 1000-WRITE-CHANGE-KEY.
+*... continue existing logic...
+
+******************************************************************
+* 1000-WRITE-CHANGE-KEY SECTION.
+******************************************************************
+* 1. Populate the change key record from the modified data.
+    MOVE HOGAN-ACCOUNT-NUMBER  TO WCK-ACCOUNT-NUMBER.
+    MOVE HOGAN-CUSTOMER-ID     TO WCK-CUSTOMER-ID.
+    MOVE FUNCTION CURRENT-DATE TO WCK-CHANGE-TIMESTAMP.
+
+* 2. Prepare the Transaction Control Block (TCB) for the PEM call.
+    MOVE LOW-VALUES TO TRANSACTION-CONTROL-BLOCK.
+    MOVE 'WRITE'    TO TCB-ACTION.
+    MOVE 'CHGKEYS'  TO TCB-DATA-GROUP-NAME.
+    MOVE WS-CHANGE-KEY-RECORD TO TCB-DATA-AREA.
+    MOVE 'WCK01'    TO TCB-ACTIVITY-ID.
+
+* 3. Call the Process Environment Manager to execute the write.
+    CALL 'PEM' USING TRANSACTION-CONTROL-BLOCK.
+
+* 4. Validate the result of the PEM call.
+    IF TCB-RESULT-CODE NOT = 'OK'
+       PERFORM 9999-HANDLE-PEM-ERROR
+    END-IF.
+    EXIT.</code></pre>
+
+                        <h3>Batch Job JCL Integration</h3>
+                        <p>The final step is to connect the logical file name used in PEM (<code>CHGKEYS</code>) to the physical VSAM ESDS dataset by adding a DD statement to the batch JCL.</p>
+                         <pre class="bg-slate-900 text-white rounded-lg p-4 overflow-x-auto"><code>//HOGANBAT JOB (ACCT),'CDC PROCESS',CLASS=A,MSGCLASS=X
+//********************************************************************
+//* DELETE/DEFINE ESDS IF NOT USING 'REUSE' OPTION
+//********************************************************************
+//DELDEF   EXEC PGM=IDCAMS
+//SYSPRINT DD SYSOUT=*
+//SYSIN    DD *
+  DELETE PROD.HOGAN.CHANGE.KEYS.ESDS CLUSTER PURGE
+  SET MAXCC=0
+  DEFINE CLUSTER -
+    (NAME(PROD.HOGAN.CHANGE.KEYS.ESDS)... ) -
+    DATA(...)
+/*
+//********************************************************************
+//* EXECUTE THE HOGAN BATCH APPLICATION
+//********************************************************************
+//RUNPROG  EXEC PGM=HOGANPGM
+//STEPLIB  DD DSN=PROD.HOGAN.LOADLIB,DISP=SHR
+//         DD DSN=SYS1.VSAM.IO.MODULES,DISP=SHR
+//... other DD statements for Hogan input/output files...
+//CHGKEYS  DD DSN=PROD.HOGAN.CHANGE.KEYS.ESDS,DISP=(NEW,KEEP,DELETE)
+//SYSOUT   DD SYSOUT=*</code></pre>
+                    </section>
+                    
+                    <section id="stage2">
+                        <h2>Stage 2 - Developing the CICS Publisher Transaction</h2>
+                        <p>This stage involves the creation of an online CICS transaction responsible for reading the staged change keys, retrieving the full data records, and publishing them to the z/OS log stream.</p>
+                        
+                        <h3>CICS Resource Configuration (CEDA)</h3>
+                        <p>Before the publisher program can be executed, all necessary resources must be defined to the CICS region using the CEDA transaction.</p>
+                        <ul>
+                            <li><strong>File Definition (FCT):</strong> Defines the ESDS change key file to CICS.</li>
+                            <li><strong>Program Definition (PPT):</strong> Defines the COBOL publisher program.</li>
+                            <li><strong>Transaction Definition (PCT):</strong> Defines the transaction ID to invoke the program.</li>
+                            <li><strong>Journal Model Definition:</strong> Links a logical journal name to the physical z/OS log stream.</li>
+                        </ul>
+                         <pre class="bg-slate-900 text-white rounded-lg p-4 overflow-x-auto"><code>CEDA DEFINE FILE(CHGKEYS) GROUP(HOGANCDC)
+    DSNAME(PROD.HOGAN.CHANGE.KEYS.ESDS)
+    BROWSE(YES) READ(YES) ADD(NO) UPDATE(NO) DELETE(NO)
+
+CEDA DEFINE PROGRAM(CDCPUBSH) GROUP(HOGANCDC) LANGUAGE(COBOL)
+
+CEDA DEFINE TRANSACTION(CDCP) GROUP(HOGANCDC) PROGRAM(CDCPUBSH)
+
+CEDA DEFINE JOURNALMODEL(CDCJRNL) GROUP(HOGANCDC)
+    JOURNALNAME(JNL01)
+    TYPE(MVS)
+    STREAMNAME(PROD.HOGAN.CHANGEDATA.LOG)</code></pre>
+                        
+                        <h3>CICS Publisher Program Logic (COBOL)</h3>
+                        <p>The COBOL program for the CICS publisher transaction orchestrates the entire publishing process. It follows a clear pattern: start a browse on the ESDS, loop through reading each key, retrieve the full record via PEM, write the record to the journal, and finally, end the browse.</p>
+                        <pre class="bg-slate-900 text-white rounded-lg p-4 overflow-x-auto"><code>IDENTIFICATION DIVISION.
+PROGRAM-ID. CDCPUBSH.
+*----------------------------------------------------------------*
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-CHANGE-KEY-RECORD.
+   05 WCK-ACCOUNT-NUMBER      PIC X(12).
+   05 WCK-CUSTOMER-ID         PIC X(10).
+   05 WCK-CHANGE-TIMESTAMP    PIC X(26).
+01 WS-FULL-DATA-RECORD       PIC X(2048).
+01 WS-START-RIDFLD           PIC S9(9) COMP-4 VALUE ZERO.
+COPY TCBCOPY.
+*----------------------------------------------------------------*
+PROCEDURE DIVISION.
+MAIN-LOGIC.
+    PERFORM 1000-START-BROWSE.
+    PERFORM 2000-PROCESS-KEYS UNTIL EIBRESP = DFHRESP(ENDFILE).
+    PERFORM 3000-END-BROWSE.
+    EXEC CICS RETURN END-EXEC.
+*----------------------------------------------------------------*
+1000-START-BROWSE.
+    EXEC CICS STARTBR FILE('CHGKEYS') RIDFLD(WS-START-RIDFLD) RBA END-EXEC.
+    IF EIBRESP NOT = DFHRESP(NORMAL)
+        EXEC CICS RETURN END-EXEC
+    END-IF.
+    PERFORM 2100-READ-NEXT-KEY.
+*----------------------------------------------------------------*
+2000-PROCESS-KEYS.
+    PERFORM 2200-GET-HOGAN-DATA.
+    PERFORM 2300-WRITE-TO-JOURNAL.
+    PERFORM 2100-READ-NEXT-KEY.
+*----------------------------------------------------------------*
+2100-READ-NEXT-KEY.
+    EXEC CICS READNEXT FILE('CHGKEYS') INTO(WS-CHANGE-KEY-RECORD) RIDFLD(WS-BROWSE-RIDFLD) END-EXEC.
+*----------------------------------------------------------------*
+2200-GET-HOGAN-DATA.
+    MOVE LOW-VALUES TO TRANSACTION-CONTROL-BLOCK.
+    MOVE 'READ'     TO TCB-ACTION.
+    MOVE 'ACCTDTL'  TO TCB-DATA-GROUP-NAME.
+    MOVE WCK-ACCOUNT-NUMBER TO TCB-KEY-FIELD.
+    CALL 'PEM' USING TRANSACTION-CONTROL-BLOCK.
+    IF TCB-RESULT-CODE = 'OK'
+        MOVE TCB-DATA-AREA TO WS-FULL-DATA-RECORD
+    ELSE
+        MOVE SPACES TO WS-FULL-DATA-RECORD
+    END-IF.
+*----------------------------------------------------------------*
+2300-WRITE-TO-JOURNAL.
+    IF WS-FULL-DATA-RECORD NOT = SPACES
+        EXEC CICS WRITE JOURNALNAME('JNL01')
+            FROM(WS-FULL-DATA-RECORD)
+            JTYPEID('CD')
+            WAIT
+        END-EXEC
+    END-IF.
+*----------------------------------------------------------------*
+3000-END-BROWSE.
+    EXEC CICS ENDBR FILE('CHGKEYS') END-EXEC.</code></pre>
+                        
+                        <h3>Defining the Target z/OS Log Stream</h3>
+                        <p>The physical log stream must be defined to the z/OS System Logger before CICS can write to it. This is done using the IXCMIAPU administrative utility.</p>
+                         <pre class="bg-slate-900 text-white rounded-lg p-4 overflow-x-auto"><code>//DEFLOG EXEC PGM=IXCMIAPU
+//SYSPRINT DD SYSOUT=*
+//SYSIN    DD *
+  DEFINE LOGSTREAM
+         NAME(PROD.HOGAN.CHANGEDATA.LOG)
+         DASDONLY(YES)
+         RETPD(14)
+         AUTODELETE(YES)
+         LS_SIZE(10000)
+         STG_SIZE(2000)
+         EHLQ(LOGGER)
+/*</code></pre>
+                    </section>
+
+                    <section id="orchestration">
+                        <h2>Orchestration, Analysis, and Alternatives</h2>
+                        <p>This final section addresses the operational linkage between the batch and CICS components and provides a critical analysis of the proposed architecture in the context of other viable CDC patterns.</p>
+                        
+                        <h3>Triggering the CICS Publisher Transaction</h3>
+                        <p>The requirement is to initiate the CICS publisher transaction automatically upon the successful completion of the Hogan batch job. The most robust method for this is the External CICS Interface (EXCI).</p>
+                        <p>The recommended approach is to add a final conditional step to the batch JCL that executes a small COBOL utility program. This step would only run if the main Hogan batch step completes successfully (e.g., <code>COND=(0,LT)</code>).</p>
+                        <pre class="bg-slate-900 text-white rounded-lg p-4 overflow-x-auto"><code>IDENTIFICATION DIVISION.
+PROGRAM-ID. TRIGCDCP.
+*>>CICSECM EXCI=YES
+*----------------------------------------------------------------*
+PROCEDURE DIVISION.
+    EXEC CICS LINK
+        PROGRAM('CDCPUBSH')
+        TRANSID('CDCP')
+        APPLID('CICSPROD')
+    END-EXEC.
+    STOP RUN.</code></pre>
+                        
+                        <h3>Pros and Cons of the ESDS Staging Architecture</h3>
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                <h4 class="text-lg font-semibold text-green-800">Pros</h4>
+                                <ul class="list-disc list-inside text-green-700">
+                                    <li><strong>Decoupling and Resilience:</strong> The batch and CICS processes are fully independent.</li>
+                                    <li><strong>Simplicity and Maintainability:</strong> Uses standard, well-understood mainframe technologies.</li>
+                                    <li><strong>Minimal Batch Impact:</strong> A simple, sequential write operation is extremely fast.</li>
+                                </ul>
+                            </div>
+                            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                                <h4 class="text-lg font-semibold text-red-800">Cons</h4>
+                                <ul class="list-disc list-inside text-red-700">
+                                    <li><strong>Latency:</strong> Data is not available until the entire process completes.</li>
+                                    <li><strong>Architectural Complexity:</strong> Requires multiple distinct components to be maintained.</li>
+                                    <li><strong>Data Staleness Risk:</strong> Retrieves data at time of retrieval, not time of change.</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <h3>Exploration of Alternative Architectures</h3>
+                        <p>The proposed solution is one of several possible patterns. Understanding the alternatives provides a strategic context for making the best architectural decision.</p>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm my-6">
+                                <thead class="bg-slate-100">
+                                    <tr>
+                                        <th class="p-2 text-left font-semibold">Criterion</th>
+                                        <th class="p-2 text-left font-semibold">User Proposal (ESDS Staging)</th>
+                                        <th class="p-2 text-left font-semibold">Direct-to-Logger (Batch)</th>
+                                        <th class="p-2 text-left font-semibold">Real-Time EXCI</th>
+                                        <th class="p-2 text-left font-semibold">Timestamp Poll</th>
+                                        <th class="p-2 text-left font-semibold">COTS Product</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-200">
+                                    <tr><td class="p-2 font-medium">Latency</td><td class="p-2">High</td><td class="p-2">Medium</td><td class="p-2">Low</td><td class="p-2">Medium-High</td><td class="p-2">Very Low</td></tr>
+                                    <tr><td class="p-2 font-medium">Batch Impact</td><td class="p-2">Very Low</td><td class="p-2">High</td><td class="p-2">Very High</td><td class="p-2">Low</td><td class="p-2">Negligible</td></tr>
+                                    <tr><td class="p-2 font-medium">Implementation Complexity</td><td class="p-2">Medium</td><td class="p-2">Very High</td><td class="p-2">High</td><td class="p-2">Medium</td><td class="p-2">Low-Medium</td></tr>
+                                    <tr><td class="p-2 font-medium">Resilience</td><td class="p-2">High</td><td class="p-2">Low</td><td class="p-2">Low</td><td class="p-2">High</td><td class="p-2">Very High</td></tr>
+                                    <tr><td class="p-2 font-medium">Data Integrity</td><td class="p-2">Medium</td><td class="p-2">High</td><td class="p-2">High</td><td class="p-2">Low</td><td class="p-2">Very High</td></tr>
+                                    <tr><td class="p-2 font-medium">Cost</td><td class="p-2">Low (Dev)</td><td class="p-2">Low (Dev)</td><td class="p-2">Low (Dev)</td><td class="p-2">Low (Dev)</td><td class="p-2">High (License)</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                    
+                    <section id="conclusion">
+                        <h2>Conclusion and Strategic Recommendations</h2>
+                        <p>The proposed architecture, which uses a VSAM ESDS as a staging queue between a Hogan batch process and a CICS publishing transaction, is a viable and technically sound approach. Its primary strengths lie in its robust decoupling, enhancing system resilience, and its minimal performance impact on the critical batch window.</p>
+                        <p>However, the architecture's most notable drawbacks are the inherent high latency and the potential risk of data staleness. It is appropriate for use cases where near-real-time data is sufficient and the risk of intermediate updates is acceptably low.</p>
+                        
+                        <h4>Tactical Recommendation:</h4>
+                        <p>The proposed ESDS-staging architecture is endorsed as a solid, custom-built solution if the business requirements can tolerate the inherent data latency and if the budget for commercial software is not available.</p>
+                        
+                        <h4>Strategic Recommendation:</h4>
+                        <p>For any mission-critical CDC requirements, it is strongly advised to evaluate and invest in a commercial, log-based CDC product. While the initial cost is higher, these COTS solutions represent the industry best practice, offering superior performance, guaranteed data integrity, and near-zero latency.</p>
+                    </section>
+
+                    <section id="works-cited">
+                        <h2>Works Cited</h2>
+                        <ul class="list-decimal list-inside text-sm text-slate-600 space-y-2">
+                            <li>VSAM - ESDS - Tutorials Point, accessed October 20, 2025, https://www.tutorialspoint.com/vsam/vsam_esds.htm</li>
+                            <li>VSAM ESDS Entry Sequenced Data Set Mainframe Bug, accessed October 20, 2025, https://www.mainframebug.com/tuts/VSAM/module2/Top8ESDS.php</li>
+                            <li>IDCAMS DEFINE CLUSTER Command Mainframe Bug, accessed October 20, 2025, https://www.mainframebug.com/tuts/VSAM/module3/Top3IDCAMS_DEFINE_CLUSTER_Command.php</li>
+                            <li>IDCAMS – Define VSAM ESDS | F1 for Mainframe, accessed October 20, 2025, https://mainframesf1.com/2016/12/28/idcams-define-vsam-esds/</li>
+                            <li>DEFINE CLUSTER, accessed October 20, 2025, https://www.microfocus.com/documentation/enterprise-developer/ed60/ED-VS2019/HCOMCMUTILS029F003.html</li>
+                            <li>Hogan | PDF | Metadata | Databases - Scribd, accessed October 20, 2025, https://www.scribd.com/document/811602235/Hogan</li>
+                            <li>Overview, accessed October 20, 2025, https://www.microfocus.com/documentation/cobol-analyzer/ca403/CA/GUID-D45A488D-DD93-4227-AC6C-3620E0060690.html</li>
+                            <li>Who Do You Call? - MVSFORUMS.com :: View topic, accessed October 20, 2025, https://www.mvsforums.com/helpboards/viewtopic.php?printertopic=1&t=8205&start=0&postdays=0&postorder=asc&vote=viewresult&sid=f535c745ce09eb26fd060ed2af96ab02</li>
+                            <li>Coding input and output statements for VSAM files - IBM, accessed October 20, 2025, https://www.ibm.com/docs/en/cobol-zos/6.4.0?topic=files-coding-input-output-statements-vsam</li>
+                            <li>How to read a vsam file using CICS - Stack Overflow, accessed October 20, 2025, https://stackoverflow.com/questions/76473188/how-to-read-a-vsam-file-using-cics</li>
+                            <li>And others...</li>
+                        </ul>
+                    </section>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const navLinks = document.querySelectorAll('.nav-link');
+            const contentSections = document.querySelectorAll('.content-section');
+            const stepCards = document.querySelectorAll('.step-card');
+            const implementationMain = document.getElementById('implementation-main');
+            const implementationDetails = document.getElementById('implementation-details');
+            const implementationSteps = document.querySelectorAll('.implementation-step');
+            const backToGuideBtn = document.querySelector('.back-to-guide');
+
+            function updateView(hash) {
+                let targetHash = hash || window.location.hash || '#overview';
+
+                contentSections.forEach(s => s.classList.remove('active'));
+                navLinks.forEach(l => l.classList.remove('active'));
+                
+                // Only hide implementation details if they exist
+                if (implementationDetails) {
+                    implementationDetails.classList.add('hidden');
+                }
+                if (implementationMain) {
+                    implementationMain.classList.remove('hidden');
+                }
+
+                if (targetHash.startsWith('#implementation-step')) {
+                    const mainImplSection = document.getElementById('implementation');
+                    if(mainImplSection) mainImplSection.classList.add('active');
+                    
+                    const implLink = document.querySelector('a[href="#implementation"]');
+                    if(implLink) implLink.classList.add('active');
+                    
+                    if(implementationMain) implementationMain.classList.add('hidden');
+                    if(implementationDetails) implementationDetails.classList.remove('hidden');
+
+                    const stepNumber = targetHash.replace('#implementation-step', '');
+                    if(implementationSteps) {
+                        implementationSteps.forEach(step => step.classList.add('hidden'));
+                    }
+                    const activeStepContent = document.getElementById(`step-content-${stepNumber}`);
+                    if (activeStepContent) {
+                        activeStepContent.classList.remove('hidden');
+                    }
+                    window.scrollTo(0, 0);
+                } else {
+                    const targetSection = document.querySelector(targetHash);
+                    if (targetSection) {
+                        targetSection.classList.add('active');
+                        const activeLink = document.querySelector(`a[href="${targetHash}"]`);
+                        if(activeLink) activeLink.classList.add('active');
+                    } else {
+                        // Fallback to overview if hash is invalid
+                        const overviewSection = document.querySelector('#overview');
+                        if(overviewSection) overviewSection.classList.add('active');
+                        
+                        const overviewLink = document.querySelector('a[href="#overview"]');
+                        if(overviewLink) overviewLink.classList.add('active');
+                    }
+                }
+            }
+            
+            navLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const targetHash = this.getAttribute('href');
+                    history.pushState(null, null, targetHash);
+                    updateView(targetHash);
+                });
+            });
+
+            stepCards.forEach(card => {
+                card.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const targetHash = this.getAttribute('href');
+                    history.pushState(null, null, targetHash);
+                    updateView(targetHash);
+                });
+            });
+
+            if (backToGuideBtn) {
+                backToGuideBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const targetHash = '#implementation';
+                    history.pushState(null, null, targetHash);
+                    updateView(targetHash);
+                    window.scrollTo(0, 0);
+                });
+            }
+
+            window.addEventListener('popstate', () => {
+                updateView(window.location.hash);
+            });
+            
+            // Initial load
+            updateView();
+        });
+    </script>
+</body>
+</html>
